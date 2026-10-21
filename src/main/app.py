@@ -1,5 +1,5 @@
-import streamlit as st
+from nicegui import ui
 
-st.title("Simulator Lift - Berpikir Komputasi")
+ui.label("Hello, world!")
 
 
