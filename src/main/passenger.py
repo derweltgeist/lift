@@ -6,7 +6,7 @@ sys.path.insert(0, str(ROOT))
 
 from physics import Physics
 
-# =========== KONFIGURASI ===========
+# =========== KONFIGURASI, SILAHKAN UBAH SENDIRI ===========
 
 O  = 0 # Batas toleransi
 D  = 0 # Peningkatan massa penumpang sebelum binary search.
@@ -77,6 +77,8 @@ while True:
         print(f"- Lower bound           : {lower_bound}")
         print(f"- Range                 : {upper_bound - lower_bound}")
         print(f"- Depth                 : {depth}")
+        print("----------")
+        print(f"Nilai massa penumpang yang sudah di-adjust oleh Safety Factor: {SF * success_median} kg")
         exit(0)
     try:
         Physics(new_conf)()
