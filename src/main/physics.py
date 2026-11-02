@@ -28,10 +28,11 @@ class Physics:
         self.check_physics_motor_force(self.__lift_passenger_mass, True, +1, -1, -1, +1, -1, +1) 
         self.check_physics_tension_force(self.__lift_passenger_mass, True, +1, -1, -1, +1) 
         self.check_physics_pulley_slip(self.__lift_passenger_mass, True, +1, -1, -1, +1)
-        self.check_physics_set_boundaries()
+        self.check_physics_set_boundaries(self.__lift_passenger_mass)
         return self.__actual_accel
     def calculate_physics_initial(self):
         """Calculate the initial setup required."""
+        print("[physics.calculate_physics_initial] Setting up configurations...")
         # physical properties
         self.__gravity              = self.__main["gravity"]             # gravitational accel
         self.__acceleration         = self.__main["acceleration"]        # the current target accel, initial value is what we prefer
@@ -50,10 +51,10 @@ class Physics:
         self.__actual_accel         = (0, 0)                             # The range of allowed acceleration.
 
         # mass properties
-        self.__lift_mass            = self.__main["lift_mass"]           # lift mass
-        self.__counterweight_mass   = self.__main["counterweight_mass"]  # counterweight mass
-        self.__lift_passenger_mass  = self.__main["lift_passenger_mass"] # passenger's mass
-        self.__pulley_rot_inertia   = self.__main["pulley_rot_inertia"]  # the rotational inertia of the pulley
+        self.__lift_mass            = float(self.__main["lift_mass"])           # lift mass
+        self.__counterweight_mass   = float(self.__main["counterweight_mass"])  # counterweight mass
+        self.__lift_passenger_mass  = float(self.__main["lift_passenger_mass"]) # passenger's mass
+        self.__pulley_rot_inertia   = float(self.__main["pulley_rot_inertia"])  # the rotational inertia of the pulley
         # friction property
         self.__pulley_friction      = self.__main["pulley_friction"]     # pulley friction force
         self.__lift_friction        = self.__main["lift_friction"] * ( # lift + passenger friction coef.
@@ -65,14 +66,6 @@ class Physics:
         self.__radius               = self.__main["radius"]              # pulley radius 
         self.__wrap_angle           = self.__main["wrap_angle"]          # wrap angle of the cable, typically 180 degrees
 
-        # Penalty for upper floors. if the counterweight is lighter, the lift wants to
-        # go down naturally. Thus the penalty must be bigger. If the counterweight is heavier
-        # aka the lift is empty or sparingly filled, the lift wants to go up naturally. Thus
-        # the penalty must be smaller.
-        self.__upper_penalty              = (self.__main["lift_passenger_mass"] + self.__main["lift_mass"]
-                                       ) / self.__main["counterweight_mass"]
-        self.__lower_penalty              = self.__main["counterweight_mass"] / (
-                                        self.__main["lift_passenger_mass"] + self.__main["lift_mass"])
     def check_physics_motor_force(self, passenger, up # indicates the direction
         # Get the origin and the sign of equation terms
         # these are sign modifiers, that are variables that can inject either -1 or +1
@@ -86,6 +79,7 @@ class Physics:
             , t_2p # T2 for the pulley
         ):
         """This function is used to test the lift under zero load."""
+        print(f"[physics.check_physics_motor_force] Initializing under up={up}")
         ###### calculate first
         # calculate the required force. you will see 1/t_1l and 1/t_2c,
         # this is because those two variables are attached like this
@@ -114,10 +108,12 @@ class Physics:
             - self.__lift_friction   * t_1p * 1/t_1l
             + self.__pulley_friction
             # inertia component
-            + (self.__pulley_rot_inertia * self.__acceleration) / self.__radius ** 2
+            + (self.__pulley_rot_inertia * self.__acceleration) / (self.__radius ** 2)
         )
+        print(f"[physics.check_physics_motor_force] Cable force under up={up} is {F} N")
         ###### if the force is more than what the motor can handle, abandon the preferred accel and try to calculate the a.
         if abs(F) > self.__max_motor_force:
+            print(f"[physics.check_physics_motor_force] Motor can not keep up under up={up}, deregulating acceleration away from preferred...")
             # can't keep up? we calculate the "supposed" accel by using the max motor force instead
             a = (
                 - self.__max_motor_force
@@ -129,10 +125,11 @@ class Physics:
                     + t_2p * m_cw * 1/t_2c * self.__counterweight_mass
                 )
             ) / (
-                - self.__pulley_rot_inertia / self.__radius ** 2
+                - self.__pulley_rot_inertia / (self.__radius ** 2)
                 + t_1p * 1/t_1l * (self.__lift_mass + passenger)
                 + t_2p * 1/t_2c * self.__counterweight_mass
             )
+            print(f"[physics.check_physics_motor_force] New acceleration under up={up} is {a} m/s^2")
             if a < 0: # this indicates the acceleration itself is negative or zero, indicating that the motor has given up
                 if up:
                     raise InvalidSetup(f"Acceleration is negative during zero load and going up, thus it has failed")
@@ -144,6 +141,7 @@ class Physics:
                 else:
                     self.__t0_a_down = a
         else:
+            print(f"[physics.check_physics_motor_force] Motor can keep up under up={up}")
             if up:
                 self.__t0_a_up = self.__acceleration
             else:
@@ -161,6 +159,7 @@ class Physics:
             , m_cw # mass of the counterweight
         ):
         """This is used to check the ability for the cable to hold up together."""
+        print(f"[physics.check_physics_tension_force] Initializing under up={up}")
         # we will get the equation for t2
         ###### check the UTS test
         t1 = (
@@ -168,7 +167,9 @@ class Physics:
             - (self.__lift_mass + passenger) * self.__gravity * m_e
             + self.__lift_friction
         ) *  1/t_1l
+        print(f"[physics.check_physics_tension_force] T1 under up={up} is {t1} N")
         if t1 > self.__max_cable_force: # if T1 > max allowed cable tension force, we force t1 = max cable tension force
+            print(f"[physics.check_physics_tension_force] T1 under up={up} exceeds the max cable force, deregulating acceleration...")
             a = (
                 + self.__max_cable_force * t_1l
                 - self.__lift_friction
@@ -176,6 +177,7 @@ class Physics:
             ) / (
                 (self.__lift_mass + passenger)
             )
+            print(f"[physics.check_physics_tension_force] T1's new acceleration is {a} m/s^2")
             if a < 0:
                 if up:
                     raise InvalidSetup(f"Acceleration is negative during zero load and going up, thus it has failed")
@@ -187,6 +189,7 @@ class Physics:
                 else:
                     self.__t1_t1_a_down = a        
         else:
+            print(f"[physics.check_physics_motor_force] T1 can keep up under up={up}")
             if up:
                 self.__t1_t1_a_up = self.__acceleration
             else:
@@ -196,7 +199,9 @@ class Physics:
             - self.__counterweight_mass * self.__gravity * m_cw
             + self.__cw_friction
         ) *  1/t_2c
+        print(f"[physics.check_physics_tension_force] T2 under up={up} is {t2} N")
         if t2 > self.__max_cable_force: # if T2 > max allowed cable tension force, we force t1 = max cable tension force
+            print(f"[physics.check_physics_tension_force] T2 under up={up} exceeds the max cable force, deregulating acceleration...")
             a = (
                 + self.__max_cable_force * t_1l
                 - self.__lift_friction
@@ -204,6 +209,7 @@ class Physics:
             ) / (
                 (self.__lift_mass + passenger)
             )
+            print(f"[physics.check_physics_tension_force] T2's new acceleration is {a} m/s^2")
             if a < 0:
                 if up:
                     raise InvalidSetup(f"Acceleration is negative during zero load and going up, thus it has failed")
@@ -215,6 +221,7 @@ class Physics:
                 else:
                     self.__t1_t2_a_down = a
         else:
+            print(f"[physics.check_physics_motor_force] T2 can keep up under up={up}")
             if up:
                     self.__t1_t2_a_up = self.__acceleration
             else:
@@ -232,6 +239,7 @@ class Physics:
             , m_cw # mass of the counterweight
         ):
         """This is used to check the ability for the cable to hold up together."""
+        print(f"[physics.check_physics_pulley_slip] Initializing under up={up}")
         t1 = (
             + (self.__lift_mass + passenger) * self.__acceleration
             - (self.__lift_mass + passenger) * self.__gravity * m_e
@@ -242,12 +250,17 @@ class Physics:
             - self.__counterweight_mass * self.__gravity * m_cw
             + self.__cw_friction
         ) *  1/t_2c
+        print(f"[physics.check_physics_pulley_slip] T1 under up={up} is {t1} N, T2 under up={up} is {t2} N")
         if max(t1, t2) == t1:
+            print(f"[physics.check_physics_pulley_slip] T1 under up={up} is T_max")
             t_max = 1
         else:
+            print(f"[physics.check_physics_pulley_slip] T2 under up={up} is T_max")
             t_max = 2
         capstan = math.e ** (self.__pulley_coefficient * self.__wrap_angle)
+        print(f"[physics.check_physics_pulley_slip] Capstan's constant is {capstan} N")
         if max(t1, t2)/min(t1, t2) > capstan:
+            print(f"[physics.check_physics_pulley_slip] Slip occured under up={up}, deregulating acceleration...")
             if t_max == 1:
                 a = (
                     + (self.__lift_mass + passenger) * self.__gravity * m_e / t_1l
@@ -262,6 +275,7 @@ class Physics:
                     - (self.__lift_mass + passenger) * self.__gravity * capstan / t_1l
                     + self.__lift_friction * capstan / t_1l
                 ) / (self.__counterweight_mass / t_2c - (self.__lift_mass + passenger) * capstan / t_1l)
+            print(f"[physics.check_physics_pulley_slip] New acceleration is {a} m/s^2")
             if a < 0:
                 if up:
                     raise InvalidSetup(f"Acceleration is negative during zero load and going up, thus it has failed")
@@ -273,32 +287,37 @@ class Physics:
                 else:
                     self.__t2_a_down = a
         else:
+            print(f"[physics.check_physics_pulley_slip] Slip DID NOT occured under up={up}")
             if up:
                 self.__t2_a_up = self.__acceleration
             else:
                 self.__t2_a_down = self.__acceleration   
         if up: # call it again recursively to test the opposite direction
             self.check_physics_pulley_slip(passenger, False, -1, +1, +1, -1)
-    def check_physics_set_boundaries(self):
+    def check_physics_set_boundaries(self, passenger):
         """Compute the intersection of all inequalities"""
-        # If the variable wants a to be as minimal as possible, it must be used as the upper bound.
-        if min(self.__t0_a_up, self.__t1_t1_a_up, self.__t2_a_up) < self.__t1_t2_a_up:
-            raise InvalidSetup("Acceleration range is invalid when setting up up range.")
-        else:
-            up_range = (
-                min(self.__t0_a_up, self.__t1_t1_a_up, self.__t2_a_up),
-                self.__t1_t2_a_up
-            )
-        # The opposite: Lower bound.
-        if max(self.__t0_a_up, self.__t1_t2_a_up, self.__t2_a_up) > self.__t1_t1_a_up:
-            raise InvalidSetup("Acceleration range is invalid when setting up down range..")
-        else:
-            down_range = (
-                self.__t1_t1_a_down,
-                max(self.__t0_a_down,self.__t1_t2_a_down, self.__t2_a_down)
-            )
-        minimal = max(up_range[0], down_range[0])        
-        maximal = min(up_range[1], down_range[1])  
+        t1_upper_bound = ((self.__lift_mass + passenger) * self.__gravity - self.__lift_friction) / (self.__lift_mass + passenger)
+        t2_upper_bound = ((self.__counterweight_mass) * self.__gravity - self.__cw_friction) / (self.__counterweight_mass)
+        print("\n==========")
+        print("ACCELERATION DATA:")
+        print(f"- [min] Motor force / up   : 0 < a <= {self.__t0_a_up}")
+        print(f"- [min] Motor force / down : 0 < a <= {self.__t0_a_down}")
+        print(f"- [min] Cable T1    / up   : 0 < a <= {self.__t1_t1_a_up}")
+        print(f"- [max] Cable T1    / down : {self.__t1_t1_a_down} <= a < {t1_upper_bound}")
+        print(f"- [max] Cable T2    / up   : {self.__t1_t2_a_up} <= a < {t2_upper_bound}")
+        print(f"- [min] Cable T2    / down : 0 < a <= {self.__t1_t2_a_down}")
+        print(f"- [min] Slip        / up   : 0 < a <= {self.__t2_a_up}")
+        print(f"- [min] Slip        / down : 0 < a <= {self.__t2_a_down}")
+        print("==========\n")
+        # Find intersection between both ranges
+        minimal = max(0, self.__t1_t1_a_down, self.__t1_t2_a_up)        
+        maximal = min(
+            self.__t0_a_up, self.__t0_a_down, self.__t1_t1_a_up,
+            t1_upper_bound, t2_upper_bound, self.__t1_t2_a_down,
+            self.__t2_a_up, self.__t2_a_down
+        )  
         if minimal > maximal:
             raise InvalidSetup("Acceleration range is invalid when setting up general range.")
+        print(f"[physics.check_physics_set_boundaries] Intersection range is {(minimal, maximal)}")
         self.__actual_accel = (minimal + maximal) / 2 # take the median
+        print(f"[physics.check_physics_set_boundaries] Median value is {self.__actual_accel} m/s^2")
